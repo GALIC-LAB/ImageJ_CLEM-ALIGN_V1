@@ -1,0 +1,255 @@
+// CLEM_ALIGN: Automated alignment of Immunofluorescence and SEM Images using Micropattern
+//
+//  Copyright (C) 2015 Milos Galic  <galic at uni-muenster.de>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+//  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
+//  EXPRESS OR  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
+//  OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
+//  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT 
+//  HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
+//  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+//  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR 
+//  OTHER DEALINGS IN THE SOFTWARE. 
+ //
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//
+
+
+macro "CLEM_ALIGN" {
+	
+dir = getDirectory("Choose OR create folder for raw data");
+
+
+// Load Micropattern Images
+title = "PART 1: SELECT MICRO-PATTERN";
+msg = "Please Select Micropattern (Brightfield)";
+	waitForUser(title, msg);
+	open();
+	name=getTitle()
+	rename("IF-micro_raw");
+
+
+title = "PART 1: SELECT MICRO-PATTERN";
+msg = "Please Select Micropattern (SEM)";
+	waitForUser(title, msg);
+	open();
+	name=getTitle()
+	rename("SEM-micro");
+    	t2=getTitle();
+       	saveAs("Tiff", dir + t2 + ".tif");
+       	close();
+
+// Load CLEM images
+title = "PART 2: SELECT CLEM IMAGES";
+msg = "Please Select Fluorescence Image";
+	waitForUser(title, msg);
+	open();
+	run("RGB Color"); //
+	name=getTitle()
+	rename("IF_raw");
+
+title = "PART 2: SELECT CLEM IMAGES";
+msg = "Please Select SEM Image";
+	waitForUser(title, msg);
+	open();
+	run("RGB Color"); //
+	name=getTitle()
+	rename("SEM");
+    	t4=getTitle();
+       	saveAs("Tiff", dir + t4 + ".tif");
+       	close();
+
+
+// Rescale BOTH Light-Microscopy Images
+Dialog.create("Enter alignment parameters"); 
+	Dialog.addNumber("Pixel size of Fluorescence image (in nm):", 100); 
+	Dialog.addNumber("Pixel size of of SEM image (in nm):", 100); 
+	Dialog.show(); 
+
+fl = Dialog.getNumber(); // pixel size Light Microscopy
+sl = Dialog.getNumber(); // pixel size SEM
+ratio = fl/sl; // scaling factor for Light Microscopy Images
+
+
+selectWindow("IF-micro_raw");
+	run("Scale...", "x="+ratio+" y="+ratio+" interpolation=Bilinear average create title=IF-micro");
+	rename("IF-micro");
+		t1=getTitle();
+    	saveAs("Tiff", dir + t1 + ".tif");
+    	close();
+ 	selectWindow("IF-micro_raw");
+		close();
+
+selectWindow("IF_raw");
+	run("Scale...", "x="+ratio+" y="+ratio+" interpolation=Bilinear average create title=IF");
+    rename("IF");
+    t3=getTitle();
+    	saveAs("Tiff", dir + t3 + ".tif");
+    	close();
+	selectWindow("IF_raw");
+		close();
+
+
+// Get rotation parameter (i.e. angle) from Micro-pattern
+
+Dialog.create("Enter rotational step size"); 
+	Dialog.addNumber("Enter step size (in degree):", 100); 
+	Dialog.show(); 
+
+a = Dialog.getNumber(); // step size
+n = 360/a; // total steps
+i = 0; 
+l = 0;
+
+open(dir + "IF-micro.tif");
+      		run("Duplicate...", "title=white");
+			run("Add...", "value=255");
+			imageCalculator("Subtract create", "white","IF-micro.tif");
+			selectWindow("Result of white");
+			selectWindow("white");
+			run("Subtract...", "value=255");
+			run("Merge Channels...", "c1=[Result of white] c2=white c3=white create");
+			selectWindow("IF-micro.tif");
+			close();
+			selectWindow("Composite");
+rename("rotate-1.tif");
+	run("Scale...", "x=0.2 y=0.2 interpolation=Bilinear average create title=image-0.tif");   // save memory
+	run("Divide...", "value=255");
+	saveAs("Tiff", dir + "image-.tif");
+    close();
+
+   do {
+      open(dir + "SEM-micro.tif");
+      		
+      		run("Duplicate...", "title=white");
+			run("Add...", "value=255");
+			imageCalculator("Subtract create", "white","SEM-micro.tif");
+			selectWindow("Result of white");
+			selectWindow("white");
+			run("Subtract...", "value=255");
+			run("Merge Channels...", "c1=white c2=[Result of white] c3=white create");
+			selectWindow("SEM-micro.tif");
+			close();
+			selectWindow("Composite");
+      		rename("rotate-2.tif");
+      run("Rotate... ", "angle=i grid=1 interpolation=Bilinear fill enlarge");
+      	run("Subtract...", "value=200");
+	run("Multiply...", "value=20");
+      run("Pairwise stitching", "first_image=rotate-2.tif second_image=rotate-1.tif fusion_method=[Linear Blending] check_peaks=5 compute_overlap subpixel_accuracy x=0.0000 y=0.0000 registration_channel_image_1=[Average all channels] registration_channel_image_2=[Average all channels]");
+      rename("delete");
+      run("RGB Color");
+      
+      rename("delete-" + i);
+      run("Scale...", "x=0.1 y=0.1 interpolation=Bilinear average create title=SEM-micro.tif");  // save memory
+       rename("image-" + i);
+       		selectWindow("delete-" + i);
+			close();
+      selectWindow("image-" + i);
+       		 t=getTitle();
+       		 saveAs("Tiff", dir + t + ".tif");
+       		 close();
+      selectWindow("delete");
+      close();
+      selectWindow("rotate-2.tif");
+      close();
+      i = i + a;
+      l = l + 1;
+   } while (i<=360);
+
+selectWindow("rotate-1.tif");
+close();
+
+run("Image Sequence...", "open="+dir+"\\image-.tif file=image convert_to_rgb sort use");
+run("Delete Slice");
+rename("bastel");
+run("Split Channels");
+	selectWindow("bastel (blue)");
+	close();
+	selectWindow("bastel (green)");
+	run("16-bit");
+	selectWindow("bastel (red)");
+	run("16-bit");
+	imageCalculator("Multiply create stack", "bastel (red)","bastel (green)");
+selectWindow("Result of bastel (red)");
+
+width=getWidth;
+height=getHeight;
+
+makeRectangle(0, 0, height, width);
+run("Add to Manager");
+roiManager("Add");
+roiManager("Select", 0);
+run("Set Measurements...", "  mean redirect=None decimal=1");
+
+title = "Get degree";
+msg = "To get optimal degree, go to ROI Manager -> More -> Multi Measure. DO NOT PROCEED BEFORE GETTING THE NUMBER! ";
+	waitForUser(title, msg);
+
+
+selectWindow("bastel (green)");
+	run("Close");
+selectWindow("bastel (red)");
+	run("Close");
+
+
+// Get Alignment Parameters from Micro-Pattern
+
+Dialog.create("Enter rotational angle"); 
+	Dialog.addNumber("Enter optimal angle (in degree):", 100); 
+	Dialog.show(); 
+angle = Dialog.getNumber(); // rotational angle
+open(dir + "SEM-micro.tif");
+	run("Rotate... ", "angle="+angle+" grid=1 interpolation=Bilinear enlarge"); 
+open(dir + "IF-micro.tif");
+		width=getWidth;  //
+		height=getHeight; //
+	run("Pairwise stitching", "first_image=IF-micro.tif second_image=SEM-micro.tif fusion_method=[Linear Blending] fused_image=IF-micro.tif<->SEM-micro.tif check_peaks=5 compute_overlap subpixel_accuracy x=-0.0000 y=-0.0000 registration_channel_image_1=[Average all channels] registration_channel_image_2=[Average all channels]");
+      rename("delete");
+title = "Get translational values";
+msg = "To get the translation values, please look in the log file. DO NOT PROCEED BEFORE GETTING THE NUMBER! ";
+	waitForUser(title, msg);
+
+Dialog.create("Enter translation parameters"); 
+	Dialog.addNumber("X shift in pixel:", 100); 
+	Dialog.addNumber("Y shift in pixel:", 100); 
+	Dialog.show(); 
+
+X = Dialog.getNumber(); // pixel shift in X
+Y = Dialog.getNumber(); // pixel shift in Y
+
+	run("Close");
+	run("Close");
+	run("Close");
+	run("Close");
+	
+// align Micro-pattern
+
+open(dir + "IF.tif");
+
+open(dir + "SEM.tif");
+run("Rotate... ", "angle="+angle+" grid=1 interpolation=Bilinear enlarge"); 
+
+
+// align CLEM images (parameter: x and y)
+
+newImage("background", "8-bit white", width, height, 1);
+run("Images to Stack", "method=[Copy (top-left)] name=Stack title=[] use");
+run("Stack to Images");
+selectWindow("background");
+close();
+selectWindow("SEM");
+run("Translate...", "x=X y=Y interpolation=None"); 
+run("Images to Stack", "name=Overlay title=[] use");
+	makeRectangle(0, 0,  width, height);
+	run("Crop");
+	rename("CLEM_overlay.tif");
+		saveAs("Tiff", dir + "FINAL_CLEM_overlay.tif");
+    // close();
+
+    }
